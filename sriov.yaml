@@ -1,0 +1,68 @@
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: kube-sriov-cfg
+  namespace: kube-system
+  labels:
+    tier: node
+    app: sriov
+data:
+  cni-conf.json: |
+    {
+      "name"  : "my-sriov-net",
+      "type"  : "sriov",
+      "master": "p55p1",
+      "ipam": {
+        "type"    : "host-local",
+        "subnet"  : "172.16.99.0/24",
+        "routes"  : [
+            { "dst": "0.0.0.0/0" }
+        ],
+        "gateway" : "172.16.99.1"
+      }
+    }
+---
+apiVersion: extensions/v1beta1
+kind: DaemonSet
+metadata:
+  name: kube-sriov-ds
+  namespace: kube-system
+  labels:
+    tier: node
+    app: sriov
+spec:
+  template:
+    metadata:
+      labels:
+        tier: node
+        app: sriov
+    spec:
+      hostNetwork: true
+      nodeSelector:
+        beta.kubernetes.io/arch: amd64
+        net: sriov
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      containers:
+      - name: kube-sriov-install-cni
+        image: alwexi/kube-sriov
+        command: [ "/bin/sh", "-c", "set -e -x; cp -f /etc/kube-sriov/cni-conf.json /etc/cni/net.d/10-sriov.conf;cp -f -u /opt/sriov/bin/* /opt/cni/bin; while true; do sleep 3600; done" ]
+        volumeMounts:
+        - name: cni
+          mountPath: /etc/cni/net.d
+        - name: sriov-cfg
+          mountPath: /etc/kube-sriov/
+        - name: cni-bin
+          mountPath: /opt/cni/bin
+      volumes:
+        - name: cni
+          hostPath:
+            path: /etc/cni/net.d
+        - name: sriov-cfg
+          configMap:
+            name: kube-sriov-cfg
+        - name: cni-bin
+          hostPath:
+            path: /opt/cni/bin
